@@ -1,4 +1,3 @@
-/* vi: set sw=5 ts=5: */
 /*
  * Xilinx bitstream loader / inspector
  *
@@ -24,6 +23,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+/* valid on Zynq */
+#define FPGA_PORT "/dev/xdevcfg"
+
 
 #ifdef CLEVER_RICHARD
 #include <arm_neon.h>
@@ -99,7 +108,6 @@ int index_in_strings(const char *strings[], const char *key)
 {
 	int idx = 0;
 
-
 	for (; strings[idx]; ++idx) {
 		if (strcmp(strings[idx], key) == 0) {
 			return idx;
@@ -130,6 +138,11 @@ void cli(int argc, char* argv[] )
 {
 	int ii;
 
+	outfile = FPGA_PORT;
+
+	if (argc == 1){
+		show_usage();
+	}
 	for (ii = 1; ii < argc; ++ii){
 		int what;
 		char *val;
@@ -177,66 +190,66 @@ void cli(int argc, char* argv[] )
 	}
 }
 
-/* valid on Zynq */
-#define FPGA_PORT "/dev/xdevcfg"
+
+
+
+/** @@todo: what if if=- (stdin: no size ... stream to variable size bucket */
+int getdata(void** buffer)
+{
+	void* buf;
+	int len;
+	int nread;
+	struct stat sb;
+	FILE *ifp;
+
+	if (infile == 0){
+		printf("ERROR:infile not specified\n");
+		exit(1);
+	}
+	if (stat(infile, &sb) == -1){
+		perror(infile);
+		exit(1);
+	}
+	len = sb.st_size;
+
+	if (len < 1024){
+		printf("ERROR: length too short\n");
+		exit(1);
+	}
+
+	ifp = fopen(infile, "r");
+	if (!ifp){
+		perror(infile);
+		exit(1);
+	}
+	buf = malloc(len);
+	nread = fread(buf, 1, len, ifp);
+	if (nread != len){
+		printf("ERROR: read %d != len %d\n", nread, len);
+		exit(1);
+	}
+	*buffer = buf;
+	return len;
+}
 
 int triplet(uint8_t * cursor, uint8_t t1, uint8_t t2, uint8_t t3)
 {
-	return cursor[0] == t1 && cursor[1] == t2 && cursor[2] == t3;
+	return cursor[0]==t1 && cursor[1]==t2 && cursor[2]==t3;
 }
+
 main(int argc, char* argv[])
 {
-	size_t sz;
 	int ii;
 	int eoh_location = 0;
-	uint32_t *bitstream, stream_size;
+	void* read_buffer;
+	int in_size;
+	uint32_t stream_size;
 	uint8_t *header;
-	FILE *ifp;
-	FILE *ofp;
-
-	outfile = FPGA_PORT;
 
 	cli(argc, argv);
 
-	if (infile == 0){
-		exit(1);
-	}
-	ifp = fopen (infile, "rb");
-
-	if (ifp == NULL){
-		printf("Could not find FPGA bitstream file specified.\n");
-		exit(1);
-	}
-
-	fseek(ifp, 0L, SEEK_END);
-	sz = ftell(ifp);
-	fseek(ifp, 0L, SEEK_SET);
-
-	header = (uint8_t*) malloc(256);
-	fread(header, 1, 256, ifp);
-	
-		
-	for (ii = 0; ii < 256; ii++) {
-		if ( triplet(header+ii, 0x00, 0x65, 0x00)){
-			stream_size = (header[ii+3] << 16)|
-				      (header[ii+4] <<  8)|
-				      (header[ii+5]);
-			eoh_location = sz-stream_size;
-
-			break;
-		}
-	}
-
-	if (eoh_location == 0){
-		printf("ERROR:eoh_location NOT FOUND\n");
-		exit(1);
-	}
-	free(header);
-	sz -= eoh_location;
-	fseek(ifp, 0L, SEEK_SET);
-
-	header = (uint8_t*) malloc(eoh_location);
-	fread(header, 1, eoh_location, ifp);
+	in_size = getdata(&read_buffer);
+	header = (uint8_t *)read_buffer;
 
 	for (ii = 0; ii < sizeof(ident_string)-1; ii++) {
 		if  (header[ii] == ident_string[ii]){
@@ -246,11 +259,28 @@ main(int argc, char* argv[])
 			exit(1);
 		}
 	}
+
+	for (ii = 0; ii < 256; ii++) {
+		if ( triplet(header+ii, 0x00, 0x65, 0x00)){
+			stream_size = (header[ii+3] << 16)|
+				      (header[ii+4] <<  8)|
+				      (header[ii+5]);
+			eoh_location = in_size-stream_size;
+			break;
+		}
+	}
+
+	if (eoh_location == 0){
+		printf("ERROR:eoh_location NOT FOUND\n");
+		exit(1);
+	}
+
 	if ( (flags & FLAG_INFO) || (~flags & FLAG_QUIET) ){
+		ii = sizeof(ident_string);
 		printf("Found Xilinx bitstream header.\n");
-		printf("Bitstream built with tool version : %X\n", header[15]);
+		printf("Bitstream built with tool version : %X\n", header[ii]);
 		printf("Bitstream generated from filename : ");
-		for (ii = 16; ii < eoh_location; ii++){
+		while(++ii < eoh_location){
 			if (header[ii] == 0x3B){
 				break;
 			}else{
@@ -284,27 +314,28 @@ main(int argc, char* argv[])
 	if (flags & FLAG_INFO){
 		exit(0);
 	}
-
 	if ((flags & FLAG_LOAD) || (flags & FLAG_LOAD_RAW)  ) {
 		/* Now load the bitstream, byte swap it and dump it into the FPGA */
-		
-		bitstream = (uint32_t*) malloc(sz);
-		fread(bitstream, 1, sz, ifp);
+
+		size_t bit_sz = in_size - eoh_location;
+		uint32_t *bitstream = (uint32_t*) (header+eoh_location);
+		int bit_words = bit_sz / 4;
+		FILE *ofp;
 
 		if (!(flags & FLAG_LOAD_RAW)){
-			for (ii = 0; ii <= sz/4; ii++) {
+			for (ii = 0; ii <= bit_words; ii++) {
 				bitstream[ii] = BYTESWAP(bitstream[ii]);
 			}
 		}
 
-		ofp = fopen (outfile, "wb");
-		fwrite(bitstream, 1, sz, ofp);
+		ofp = fopen (outfile, "w");
+		if (!ofp){
+			perror(outfile);
+			exit(1);
+		}
+		fwrite(bitstream, 1, bit_sz, ofp);
 
 		fclose(ofp);
 	}
-
-	fclose(ifp);
-	free(header);
-	free(bitstream);
 	exit(0);
 }
