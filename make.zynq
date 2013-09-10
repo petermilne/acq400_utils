@@ -1,0 +1,3 @@
+source ../setup.env
+make all
+
