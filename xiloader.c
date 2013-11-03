@@ -134,15 +134,36 @@ void show_usage(void)
 	exit(1);
 }
 
+int is_file(const char* fname)
+{
+        struct stat sb;
+
+        if (stat(fname, &sb) == -1){
+                perror(infile);
+		return 0;
+        }else{
+		return 1;
+	}
+}
 void cli(int argc, char* argv[] )
 {
 	int ii;
 
 	outfile = FPGA_PORT;
 
-	if (argc == 1){
+	switch(argc){
+	case 1:
 		show_usage();
-	}
+	case 2:
+		if (is_file(argv[1])){
+			infile = argv[1];
+			flags |= FLAG_INFO;
+			return;	
+		}
+	default:
+		;
+	}	
+
 	for (ii = 1; ii < argc; ++ii){
 		int what;
 		char *val;
