@@ -1,23 +1,26 @@
-/*
- * Xilinx bitstream loader / inspector
- *
- *
- * Copyright (C) 2013 D-TACQ Solutions
- *
- * Licensed under GPLv2 or later, see file LICENSE in this source tree.
- */
+/* ------------------------------------------------------------------------- */
+/*   Copyright (C) 2013 Peter Milne, D-TACQ Solutions Ltd
+ *                      <Peter dot Milne at D hyphen TACQ dot com>
+    http://www.d-tacq.com
 
-#define usage "\
-     \nUsage: xiloader if=<file> [mode=load,quiet,info]\
-     \n\nLoad a bitstream into the Zynq FPGA fabric\n\
-     \n   if=FILE        Read from FILE\
-     \n   of=FILE        Write to FILE\
-     \n   mode=info      Don't load file, just print header info\
-     \n                  overrides quiet and load\
-     \n   mode=quiet     Don't print header info when loading\
-     \n   mode=load      load bitstream into FPGA fabric\
-     \n   mode=loadraw   load bitstream bytewise\
-     \n"
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of Version 2 of the GNU General Public License
+    as published by the Free Software Foundation;
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+/* ------------------------------------------------------------------------- */
+
+/** @file xiloader decode/load xilinx .bit file
+ * Refs:
+*/
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,37 +32,15 @@
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
+
+#include "popt.h"
 
 /* valid on Zynq */
 #define FPGA_PORT "/dev/xdevcfg"
 
-
-#ifdef CLEVER_RICHARD
-#include <arm_neon.h>
-
-
-/* Do it with ARM_ASM */
-#define BYTESWAP(val)					\
-     ({ __asm__ __volatile__ (				\
-	       "eor     r3, %1, %1, ror #16\n\t"	\
-	       "bic     r3, r3, #0x00FF0000\n\t"	\
-	       "mov     %0, %1, ror #8\n\t"		\
-	       "eor     %0, %0, r3, lsr #8"		\
-	       : "=r" (val)				\
-	       : "0"(val)				\
-	       : "r3", "cc"				\
-	       ); val; })
-
-
-/* Do it fast with THUMB2 */
-#define BYTESWAP(val)				\
-     ({ __asm__ __volatile__ (			\
-	       "rev     %0, %0"			\
-	       : "=r" (val)			\
-	       : "0" (val)			\
-	       ); val; })
-
-#else
+#define STDOUT_STR	"-"
+#define STDIN_STR	"-"
 
 typedef unsigned u32;
 
@@ -73,184 +54,163 @@ static inline u32 bs(u32 num) {
 
 #define BYTESWAP(val)	bs(val)
 
-#endif
-
-enum {
-     FLAG_INFO     = 1 << 0,
-     FLAG_QUIET    = 1 << 1,
-     FLAG_LOAD     = 1 << 2,
-     FLAG_LOAD_RAW = 1 << 3,
-};
-
-enum {
-     OP_if,
-     OP_of,
-     OP_mode,
-     OP_mode_info,
-     OP_mode_quiet,
-     OP_mode_load,
-};
+#define MAXHEADER	1024
 
 static const uint8_t ident_string[] = {
-     0x00,0x09,0x0f,0xf0,0x0f,0xf0,0x0f,
-     0xf0,0x0f,0xf0,0x00,0x00,0x01,0x61,
-     0x00
+	0x00, 0x09, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0,
+	0x0f, 0xf0, 0x00, 0x00, 0x01, 0x61, 0x00
 };
-static const char *keywords[] = {
-     "if", "of", "mode", 0
-};
-static const char *mode_words[] = {
-     "info", "quiet", "load", "loadraw", 0
+
+static const uint8_t bits_start_marker[] = {
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
 };
 
 
-int index_in_strings(const char *strings[], const char *key)
-{
-     int idx = 0;
 
-     for (; strings[idx]; ++idx) {
-	  if (strcmp(strings[idx], key) == 0) {
-	       return idx;
-	  }
-     }
-     return -1;
-}
+
 
 /* Command Line Argument Parsing*/
-struct {
-     int flags;
-     const char *infile;
-     const char *outfile;
-} Z;
 
-#define flags   (Z.flags   )
-#define infile  (Z.infile  )
-#define outfile (Z.outfile )
+struct Options {
+	const char *in;
+	const char *out;
+	int info;
+	int load;
+	int raw;
+	int quiet;
+	int input_len; 			/* if known */
+} OPTS = {
+		STDIN_STR, FPGA_PORT, 1, 0, 0, 0
+};
 
 
-void show_usage(void)
+
+static struct poptOption opt_table[] = {
+	{ "outfile", 'o', POPT_ARG_STRING, &OPTS.out, 'o',
+		"output destination [default:"FPGA_PORT "] .. -:stdout"},
+	{ "infile",  'i', POPT_ARG_STRING, &OPTS.in, 'i',
+		"input destination, - : stdin"			},
+	{ "info",   'I',  POPT_ARG_NONE, 0,  'I', },
+	{ "load",   'L',  POPT_ARG_NONE, 0,  'L', },
+	{ "raw",    'R',  POPT_ARG_NONE, 0,  'R', },
+	{ "quiet",  'q',  POPT_ARG_NONE, 0,  'q'  },
+	POPT_AUTOHELP
+	POPT_TABLEEND
+};
+
+void get_options(int argc, const char* argv[])
 {
-     printf(usage);
-     exit(1);
+	poptContext opt_context =
+                poptGetContext(argv[0], argc, argv, opt_table, 0);
+	int rc;
+	const char* key;
+
+	while ((rc = poptGetNextOpt(opt_context)) > 0){
+		switch(rc){
+		case 'I':
+			OPTS.info = 1; break;
+		case 'L':
+			OPTS.load = 1; break;
+		case 'R':
+			OPTS.raw = 1; break;
+		case 'Q':
+			OPTS.quiet = 1; break;
+		}
+	}
+	/* alternatively, file name may be simple the first arg ..
+	 */
+	key = poptGetArg(opt_context);
+	if (key != 0){
+		OPTS.in = key;
+	}
 }
 
-int is_file(const char* fname)
+int input_size_unknown()
 {
-     struct stat sb;
-
-     if (stat(fname, &sb) == -1){
-	  perror(infile);
-	  return 0;
-     }else{
-	  return 1;
-     }
-}
-void cli(int argc, char* argv[] )
-{
-     int ii;
-
-     outfile = FPGA_PORT;
-
-     switch(argc){
-     case 1:
-	  show_usage();
-     case 2:
-	  if (is_file(argv[1])){
-	       infile = argv[1];
-	       flags |= FLAG_INFO;
-	       return;	
-	  }
-     default:
-	  ;
-     }	
-
-     for (ii = 1; ii < argc; ++ii){
-	  int what;
-	  char *val;
-	  char *arg = argv[ii];
-	  what = index_in_strings(keywords, arg);
-	  if (arg[0] == '-' && arg[1] == '-' && arg[2] == '\0') continue;
-
-	  val = strchr(arg, '=');
-	  if (val == NULL) show_usage();
-	  *val = '\0';
-	  what = index_in_strings(keywords, arg);
-	  if (what < 0) show_usage();
-	  /* *val = '='; - to preserve ps listing? */
-	  val++;
-
-
-	  switch(what){
-	  case OP_mode:
-	       while (1) {
-		    /* find ',', replace them with NUL so we can use val for
-		     * index_in_strings() without copying.
-		     * We rely on val being non-null, else strchr would fault.
-		     */
-		    arg = strchr(val, ',');
-		    if (arg) *arg = '\0';
-		    what = index_in_strings(mode_words, val);
-
-		    if (what < 0){
-			 printf(usage);
-			 exit(1);
-		    }
-
-		    flags |= (1 << what);
-		    if (!arg)	break;
-		    val = arg + 1; /* skip this keyword and ',' */
-	       }
-	       break;
-	  case OP_if:
-	       infile = val;
-	       break;
-	  case OP_of:
-	       outfile = val;
-	       break;
-	  }
-     }
+	return strcmp(OPTS.in, STDIN_STR) == 0;
 }
 
 
+FILE *ifp;
+int icursor;
 
-
-/** @@todo: what if if=- (stdin: no size ... stream to variable size bucket */
 int getdata(void** buffer)
 {
      void* buf;
-     int len;
+     int maxlen;
+     int len = 0;
      int nread;
-     struct stat sb;
-     FILE *ifp;
 
-     if (infile == 0){
+     if (OPTS.in == 0){
 	  printf("ERROR:infile not specified\n");
 	  exit(1);
      }
-     if (stat(infile, &sb) == -1){
-	  perror(infile);
-	  exit(1);
-     }
-     len = sb.st_size;
+     if (input_size_unknown()){
+	     ifp = stdin;
+	     maxlen = MAXHEADER;
+     }else{
+	     struct stat sb;
+	     if (stat(OPTS.in, &sb) == -1){
+		     perror(OPTS.in);
+		     exit(1);
+	     } else {
+		     maxlen = len = sb.st_size;
 
-     if (len < 1024){
-	  printf("ERROR: length too short\n");
-	  exit(1);
+		     if (len < MAXHEADER){
+			  printf("ERROR: length too short\n");
+			  exit(1);
+		     }
+
+		     ifp = fopen(OPTS.in, "r");
+		     if (!ifp){
+			  perror(OPTS.in);
+			  exit(1);
+		     }
+	     }
      }
 
-     ifp = fopen(infile, "r");
-     if (!ifp){
-	  perror(infile);
-	  exit(1);
+
+     buf = malloc(maxlen);
+     icursor = nread = fread(buf, 1, maxlen, ifp);
+     if (nread < -0){
+	     perror(OPTS.in);
+	     exit(1);
      }
-     buf = malloc(len);
-     nread = fread(buf, 1, len, ifp);
-     if (nread != len){
-	  printf("ERROR: read %d != len %d\n", nread, len);
-	  exit(1);
+     if (nread != maxlen){
+	     if (nread < MAXHEADER){
+		     fprintf(stderr, "failed to read enough data for header\n");
+		     exit(1);
+	     }
+	     if (len){
+		     fprintf(stderr, "length is known but failed to read\n");
+		     exit(1);
+	     }
      }
+
      *buffer = buf;
-     return len;
+     return input_size_unknown() ? 0: nread;
+}
+
+void* get_remaining_data(void* buffer, int buffer_size)
+{
+	int nread;
+	buffer = realloc(buffer, buffer_size);
+	if (buffer == NULL){
+		perror("realloc failed");
+		exit(1);
+	}
+	nread = fread((char*)buffer+icursor, 1, buffer_size-icursor, ifp);
+	if (nread < 0){
+		perror("fread failed");
+		exit(1);
+	}
+	if (nread+icursor < buffer_size){
+		fprintf(stderr, "ERROR: not enough data:%d wanted %d\n",
+				nread+icursor, buffer_size);
+		exit(1);
+	}
+	return buffer;
 }
 
 int triplet(uint8_t * cursor, uint8_t t1, uint8_t t2, uint8_t t3)
@@ -260,22 +220,22 @@ int triplet(uint8_t * cursor, uint8_t t1, uint8_t t2, uint8_t t3)
 
 
 	
-void print_header(uint8_t *header, int eoh_location)
+void print_header(uint8_t *header, int eoh_location, int stream_size)
 {
      int ii = sizeof(ident_string);
 
-     printf("Xilinx Bitstream header.\n");
-     printf("%-25s : %x\n", "built with tool version", header[ii]);
-     printf("%-25s : ", "generated from filename");
+     fprintf(stderr, "Xilinx Bitstream header.\n");
+     fprintf(stderr, "%-25s : %x\n", "built with tool version", header[ii]);
+     fprintf(stderr, "%-25s : ", "generated from filename");
 /*                      123456789012345678901234 */
      while(++ii < eoh_location){
 	  if (header[ii] == 0x3B){
 	       break;
 	  }else{
-	       printf("%c", header[ii]);
+	       fprintf(stderr, "%c", header[ii]);
 	  }
      }
-     printf("\n");
+     fprintf(stderr, "\n");
 
      for (; ii < eoh_location; ii++){
 	  if (triplet(header+ii, 0x00, 0x62, 0x00)){
@@ -284,51 +244,64 @@ void print_header(uint8_t *header, int eoh_location)
 	  }
      }
 
-     printf("%-25s : ", "part");
+     fprintf(stderr, "%-25s : ", "part");
      for (; ii < eoh_location; ii++){
 	  if (triplet(header+ii, 0x00, 0x63, 0x00)){
 	       ii += 3;
-	       printf("\n");
-	       printf("%-25s : ", "date");
+	       fprintf(stderr, "\n");
+	       fprintf(stderr, "%-25s : ", "date");
 	  }else if (triplet(header+ii, 0x00, 0x64, 0x00)){
 	       ii += 3;
-	       printf("\n");
-	       printf("%-25s : ", "time");
+	       fprintf(stderr, "\n");
+	       fprintf(stderr, "%-25s : ", "time");
 	  }else if (triplet(header+ii, 0x00, 0x65, 0x00)){
 	       break;
 	  }else{
 	       int cx = header[ii];
 	       if (isprint(cx)){
-		    printf("%c", cx);
+		    fprintf(stderr, "%c", cx);
 	       }
 	  }
      }
-     printf("\n");
-     printf("%-25s : %d\n", "bitstream data starts at", eoh_location);
+     fprintf(stderr, "\n");
+     fprintf(stderr, "%-25s : %d\n", "bitstream data starts at", eoh_location);
+     fprintf(stderr, "%-25s : %d\n", "bitstream data size", stream_size);
 }
 
 void load_bitstream(uint32_t* bitstream, int nbytes)
 /* byte swap it and dump it into the FPGA */
 {
-     int bit_words = nbytes/sizeof(uint32_t);
-     FILE *ofp = fopen (outfile, "w");
-     if (!ofp){
-	  perror(outfile);
-	  exit(1);
+     FILE *ofp = stdout;
+     int nwrite;
+     if (strcmp(OPTS.out, STDOUT_STR) != 0){
+	     ofp = fopen (OPTS.out, "w");
+	     if (!ofp){
+		     perror(OPTS.out);
+		     exit(1);
+	     }
      }
 
-     if (!(flags & FLAG_LOAD_RAW)){
+     if (!OPTS.raw){
+	  int bit_words = nbytes/sizeof(uint32_t);
 	  int ii;
 	  for (ii = 0; ii <= bit_words; ii++) {
 	       bitstream[ii] = BYTESWAP(bitstream[ii]);
 	  }
      }
 
-     fwrite(bitstream, 1, nbytes, ofp);
+     fprintf(stderr, "load_bitstream(), about to write %d\n", nbytes);
+     nwrite = fwrite(bitstream, 1, nbytes, ofp);
+     fprintf(stderr, "load_bitstream() %d bytes written %s\n",
+		     nwrite, nbytes==nwrite? "SUCCESS": "ERROR");
      fclose(ofp);
 }
 
-main(int argc, char* argv[])
+int is_bitstream_marker(uint8_t * cursor)
+{
+	return memcmp(cursor, bits_start_marker, sizeof bits_start_marker) == 0;
+}
+
+main(int argc, const char* argv[])
 {
      int ii;
      int eoh_location = 0;
@@ -336,8 +309,9 @@ main(int argc, char* argv[])
      int in_size;
      uint32_t stream_size;
      uint8_t *header;
+     int start_bitstream_found = 0;
 
-     cli(argc, argv);
+     get_options(argc, argv);
 
      in_size = getdata(&read_buffer);
      header = (uint8_t *)read_buffer;
@@ -351,31 +325,55 @@ main(int argc, char* argv[])
 	  }
      }
 
-     for (ii = 0; ii < 256; ii++) {
+     for (ii = 0; ii < MAXHEADER; ii++) {
 	  if ( triplet(header+ii, 0x00, 0x65, 0x00)){
 	       stream_size = (header[ii+3] << 16)|
 		    (header[ii+4] <<  8)|
 		    (header[ii+5]);
-	       eoh_location = in_size-stream_size;
+	       if (in_size){
+		       eoh_location = in_size-stream_size;
+	       }
 	       break;
 	  }
      }
 
+     for (; ii < MAXHEADER; ++ii){
+	     if (is_bitstream_marker(header+ii)){
+		     start_bitstream_found = 1;
+		     if (eoh_location == ii){
+			     fprintf(stderr, "eoh_location matched\n");
+			     break;
+		     }else if (eoh_location == 0){
+			     fprintf(stderr, "eoh_location set %d\n", eoh_location);
+			     eoh_location = ii;
+			     break;
+		     }else{
+			     fprintf(stderr, "ERROR eoh_location mismatch %d %d\n",
+					eoh_location, ii);
+			     exit(1);
+		     }
+	     }
+     }
+     if (start_bitstream_found == 0){
+	     fprintf(stderr, "ERROR: bitstream data NOT found\n");
+	     exit(1);
+     }
      if (eoh_location == 0){	     
-	  printf("ERROR:eoh_location NOT FOUND\n");
-	  exit(1);
+	     fprintf(stderr, "ERROR:eoh_location NOT FOUND\n");
+	     exit(1);
      }
 
-     if ( (flags & FLAG_INFO) || (~flags & FLAG_QUIET) ){	     
-	  print_header(header, eoh_location);
-	  if (flags & FLAG_INFO){
-	       exit(0);
-	  }
+     if (OPTS.info && !OPTS.quiet){
+	  print_header(header, eoh_location, stream_size);
      }
+     if (OPTS.load){
+	 if (OPTS.load && stream_size > in_size){
+		 read_buffer = get_remaining_data(
+				 read_buffer, stream_size+eoh_location);
+		 header = (uint8_t *)read_buffer;
+	 }
 
-     if ((flags & FLAG_LOAD) || (flags & FLAG_LOAD_RAW)  ) {
-	  load_bitstream((uint32_t*)(header+eoh_location), 
-			 in_size - eoh_location);
+	 load_bitstream((uint32_t*)(header+eoh_location), stream_size);
      }
      exit(0);
 }
