@@ -1,4 +1,25 @@
-/* convert file system tree to xml */
+/* ------------------------------------------------------------------------- */
+/*   Copyright (C) 2013 Peter Milne, D-TACQ Solutions Ltd
+ *                      <Peter dot Milne at D hyphen TACQ dot com>
+    http://www.d-tacq.com
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of Version 2 of the GNU General Public License
+    as published by the Free Software Foundation;
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+/* ------------------------------------------------------------------------- */
+
+/** @file fs2xml convert file system tree to xml
+ * Refs:
+*/
 
 /*
 <?xml version="1.0" encoding="UTF-8"?>
@@ -80,6 +101,10 @@ void printRecord(int id, const char* path)
 	       id, path, getLine(path));
 }
 
+void printV(const char* vdata)
+{
+	fprintf(fout, "\t\t<v><![CDATA[%s]]>\t\t</v>\n", vdata);
+}
 void printRecordKargsVstdin(int ii, const char **args)
 {	
 	char *inbuf = malloc(4096);
@@ -89,7 +114,7 @@ void printRecordKargsVstdin(int ii, const char **args)
 
 		fprintf(fout, "\t<acqData id=\"%d\" n=\"%s\">\n", 
 						ii, args[ii]);
-		fprintf(fout, "\t\t<v>%s\t\t</v>\n", chomp(inbuf));
+		printV(chomp(inbuf));
 		fprintf(fout, "\t</acqData>\n");
 		++ii;
 	}
@@ -107,7 +132,7 @@ void printRecordStdinValue(int id, const char* name)
 	}
 
 	fprintf(fout, "\t<acqData id=\"%d\" n=\"%s\">\n", id, name);
-	fprintf(fout, "\t\t<v>%s\t\t</v>\n", inbuf);
+	printV(inbuf);
 	fprintf(fout, "\t</acqData>\n");
 	free(inbuf);
 }
@@ -128,7 +153,7 @@ void printRecordSubProc(int id, const char* name, const char* proc)
 	}
 
         fprintf(fout, "\t<acqData id=\"%d\" n=\"%s\">\n", id, name);
-        fprintf(fout, "<v>%s</v>\n", inbuf);
+	printV(inbuf);
         fprintf(fout, "\t</acqData>\n");
         free(inbuf);
 }
@@ -141,7 +166,7 @@ void printRecordPair(int id, const char* pair)
 
 	if (np == 2){
 		fprintf(fout, "\t<acqData id=\"%d\" n=\"%s\">\n", id, key);
-		fprintf(fout, "\t\t<v>%s</v>\n", value);
+		printV(value);
 		fprintf(fout, "\t</acqData>\n");
 	}
 }
