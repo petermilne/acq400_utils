@@ -36,6 +36,7 @@
 
 #include "popt.h"
 
+#define VERID	"xiloader r1.01 (c) D-TACQ Solutions"
 /* valid on Zynq */
 #define FPGA_PORT "/dev/xdevcfg"
 
@@ -123,6 +124,9 @@ void get_options(int argc, const char* argv[])
 	key = poptGetArg(opt_context);
 	if (key != 0){
 		OPTS.in = key;
+	}
+	if (!OPTS.quiet){
+		fprintf(stderr, "%s\n", VERID);
 	}
 }
 
@@ -268,11 +272,17 @@ void print_header(uint8_t *header, int eoh_location, int stream_size)
      fprintf(stderr, "%-25s : %d\n", "bitstream data size", stream_size);
 }
 
+
+/* compensate for the poor design of Xilinx driver that attempts to kmalloc ALL */
+
+#define MAX1WRITE	0x100000
 void load_bitstream(uint32_t* bitstream, int nbytes)
 /* byte swap it and dump it into the FPGA */
 {
      FILE *ofp = stdout;
-     int nwrite;
+     int totwrite = 0;
+     char* bcursor = (char*)bitstream;
+
      if (strcmp(OPTS.out, STDOUT_STR) != 0){
 	     ofp = fopen (OPTS.out, "w");
 	     if (!ofp){
@@ -289,10 +299,19 @@ void load_bitstream(uint32_t* bitstream, int nbytes)
 	  }
      }
 
-     fprintf(stderr, "load_bitstream(), about to write %d\n", nbytes);
-     nwrite = fwrite(bitstream, 1, nbytes, ofp);
-     fprintf(stderr, "load_bitstream() %d bytes written %s\n",
-		     nwrite, nbytes==nwrite? "SUCCESS": "ERROR");
+
+     while (totwrite < nbytes){
+     	     int req_bytes = nbytes - totwrite;
+     	     int act_bytes;
+     	     if (req_bytes > MAX1WRITE) req_bytes = MAX1WRITE;
+     	     act_bytes = fwrite(bcursor, 1, req_bytes, ofp);
+     	     if (act_bytes != req_bytes){
+     		     fprintf(stderr, "ERROR request: %d got %d bytes\n", req_bytes, act_bytes);
+     	     }
+     	     bcursor += act_bytes;
+     	     totwrite += act_bytes;
+     }
+
      fclose(ofp);
 }
 
@@ -315,6 +334,7 @@ main(int argc, const char* argv[])
 
      in_size = getdata(&read_buffer);
      header = (uint8_t *)read_buffer;
+
 
      for (ii = 0; ii < sizeof(ident_string)-1; ii++) {
 	  if  (header[ii] == ident_string[ii]){
