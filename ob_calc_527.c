@@ -85,7 +85,7 @@ struct poptOption opt_table[] = {
 #define OP_RANGE_SPEC	300
 
 /* turns out this isn't achievable with Input > 4M, so allow relaxed spec: */
-#define OP_RANGE_SPEC2  600
+#define OP_RANGE_SPEC2  1200
 
 /* previous incarnation was running > 1.33 MHz, and it was OK :-) */
 
