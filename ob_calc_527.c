@@ -97,7 +97,7 @@ static int find_best_ratio()
 	int op_range = OP_RANGE_SPEC;
 
 	while(!XDW_VALID(f_in_khz/op_range -2)){
-	     op_range *= 2;
+	     op_range++;
 	}
 
 	struct Best {
@@ -137,10 +137,11 @@ search_value:
 			if (fdw2 -2 > RMAX){
 				if (best.valid){
 					break;
-				}else if (op_range == OP_RANGE_SPEC){
-					op_range = OP_RANGE_SPEC2;
+				}else if (op_range++ < OP_RANGE_SPEC2){
+/*
 					info("downgrade op_range to %d",
 					     op_range);
+*/
 					goto search_value;
 				}else{
 					if (!best.valid){
@@ -157,7 +158,8 @@ search_value:
 	if (best.valid){
 		def.actual = f_in_khz * best.fdw2/best.rdw2;
 		def.FDW = best.fdw2 - 2;
-		def.RDW = best.rdw2 - 2;		
+		def.RDW = best.rdw2 - 2;
+		info("op_range %d", op_range);		
 	}else{
 		err("BEST value not found - please change fin");
 		return -1;
