@@ -320,7 +320,7 @@ int is_bitstream_marker(uint8_t * cursor)
 	return memcmp(cursor, bits_start_marker, sizeof bits_start_marker) == 0;
 }
 
-main(int argc, const char* argv[])
+int main(int argc, const char* argv[])
 {
      int ii;
      int eoh_location = 0;
@@ -395,5 +395,5 @@ main(int argc, const char* argv[])
 
 	 load_bitstream((uint32_t*)(header+eoh_location), stream_size);
      }
-     exit(0);
+     return 0;
 }

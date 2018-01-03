@@ -75,6 +75,7 @@ void printInfo() {
 	fprintf(fout, "\t<acqInfo>\n");
 	fprintf(fout, "\t\t<host>%s</host>\n", getHostname(buf, 80));
 	fprintf(fout, "\t\t<date>%s</date>\n", getDate(buf, 80));
+	fprintf(fout, "\t\t<uptime>%s</uptime>\n", getUptime(buf, 80));
 	fprintf(fout, "\t</acqInfo>\n");
 }
 void printHeader() {
