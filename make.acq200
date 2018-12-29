@@ -1,3 +1,0 @@
-#!/bin/bash
-rm xiloader
-make CC=arm-xscale-linux-gnu-gcc xiloader
