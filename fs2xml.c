@@ -43,6 +43,7 @@
 
 #include "popt.h"
 
+#define MAXBUF 8192		/* JL said 4096 was not enough */
 
 FILE *fout;
 
@@ -108,10 +109,10 @@ void printV(const char* vdata)
 }
 void printRecordKargsVstdin(int ii, const char **args)
 {	
-	char *inbuf = malloc(4096);
+	char *inbuf = malloc(MAXBUF);
 	ii =0;
 
-	while(fgets(inbuf, 4096, stdin) != 0 && args[ii] != NULL){
+	while(fgets(inbuf, MAXBUF, stdin) != 0 && args[ii] != NULL){
 
 		fprintf(fout, "\t<acqData id=\"%d\" n=\"%s\">\n", 
 						ii, args[ii]);
@@ -124,12 +125,15 @@ void printRecordKargsVstdin(int ii, const char **args)
 
 void printRecordStdinValue(int id, const char* name)
 {
-	char *inbuf = malloc(4096);
+	char *inbuf = malloc(MAXBUF);
 	char *l1 = inbuf;
 	char *l2;
+	int rem = MAXBUF;
 	
-	while ((l2 = fgets(l1, 4096, stdin)) != 0){
-		l1 = l2 + strlen(l2);
+	while (rem > 0 && (l2 = fgets(l1, rem, stdin)) != 0){
+		int ll = strlen(l2);
+		l1 = l2 + ll;
+		rem -= ll;
 	}
 
 	fprintf(fout, "\t<acqData id=\"%d\" n=\"%s\">\n", id, name);
@@ -140,13 +144,16 @@ void printRecordStdinValue(int id, const char* name)
 void printRecordSubProc(int id, const char* name, const char* proc)
 {
 	FILE *fp = popen(proc, "r");
-        char *inbuf = malloc(4096);
+        char *inbuf = malloc(MAXBUF);
         char *l1 = inbuf;
         char *l2;
 
 	if (fp != 0){
-	        while ((l2 = fgets(l1, 4096, fp)) != 0){
-        	        l1 = l2 + strlen(l2);
+		int rem = MAXBUF;
+	        while (rem > 0 && (l2 = fgets(l1, rem, fp)) != 0){
+			int ll = strlen(l2);
+        	        l1 = l2 + ll;
+			rem -= ll;
 	        }
 		pclose(fp);
 	}else{
