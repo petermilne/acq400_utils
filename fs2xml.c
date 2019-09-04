@@ -107,6 +107,15 @@ void printV(const char* vdata)
 {
 	fprintf(fout, "\t\t<v><![CDATA[%s]]>\t\t</v>\n", vdata);
 }
+
+void printV1(void)
+{
+	fprintf(fout, "\t\t<v><![CDATA[");
+}
+void printV2(void)
+{
+	fprintf(fout, "]]>\t\t</v>\n");
+}
 void printRecordKargsVstdin(int ii, const char **args)
 {	
 	char *inbuf = malloc(MAXBUF);
@@ -126,18 +135,51 @@ void printRecordKargsVstdin(int ii, const char **args)
 void printRecordStdinValue(int id, const char* name)
 {
 	char *inbuf = malloc(MAXBUF);
+	char **rows = calloc(250, sizeof(char*));
+	char **col2 = 0;
+	char **col1 = 0;
 	char *l1 = inbuf;
 	char *l2;
 	int rem = MAXBUF;
+	int row = 0;
+	int break_hint = 0;
 	
-	while (rem > 0 && (l2 = fgets(l1, rem, stdin)) != 0){
-		int ll = strlen(l2);
+	while (rem > 0 && (l2 = fgets(l1, rem, stdin)) && chomp(l2)){
+		int ll = strlen(l2) + 1;	/* include the '\0' */
+		if (break_hint){
+			col2 = &rows[row];
+			break_hint = 0;
+		}
+		if (ll == 1){
+			break_hint = 1;
+		}
+		rows[row++] = l2;
+
 		l1 = l2 + ll;
 		rem -= ll;
 	}
+	if ((row&1) != 0){
+		rows[row++] = "\0";
+	}
+	col1 = &rows[0];
 
 	fprintf(fout, "\t<acqData id=\"%d\" n=\"%s\">\n", id, name);
-	printV(inbuf);
+	printV1();
+	if (row < 40){
+		for (int outrow = 0; outrow < row; ++outrow){
+			fprintf(fout, "%40s\n", col1[outrow]);
+		}
+	}else{
+		int outmax = row/2;
+		if (col2 == 0){
+			col2 = &rows[outmax];
+		}
+		
+		for (int outrow = 0; outrow < outmax; ++outrow){
+			fprintf(fout, "%40s %40s\n", col1[outrow], col2[outrow]);
+		}
+	}
+	printV2();
 	fprintf(fout, "\t</acqData>\n");
 	free(inbuf);
 }
