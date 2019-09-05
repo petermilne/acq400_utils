@@ -167,7 +167,7 @@ void printRecordStdinValue(int id, const char* name)
 	printV1();
 	if (row < 40){
 		for (int outrow = 0; outrow < row; ++outrow){
-			fprintf(fout, "%40s\n", col1[outrow]);
+			fprintf(fout, "%s\n", col1[outrow]);
 		}
 	}else{
 		int outmax = row/2;
