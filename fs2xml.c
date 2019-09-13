@@ -47,6 +47,8 @@
 
 FILE *fout;
 
+int row_limit = 40;
+
 char* readCommand(const char* cmd, char* buf, int maxbuf)
 {
 	FILE* fp = popen(cmd, "r");
@@ -165,7 +167,7 @@ void printRecordStdinValue(int id, const char* name)
 
 	fprintf(fout, "\t<acqData id=\"%d\" n=\"%s\">\n", id, name);
 	printV1();
-	if (row < 40){
+	if (row_limit == 0 || row < row_limit){
 		for (int outrow = 0; outrow < row; ++outrow){
 			fprintf(fout, "%s\n", col1[outrow]);
 		}
@@ -270,6 +272,10 @@ const char** processArgs(int argc, const char* argv[])
 	poptContext opt_context =
                 poptGetContext(argv[0], argc, argv, opt_table, 0);
 	int rc;
+
+	if (getenv("ROW_LIMIT")){
+		row_limit = atoi(getenv("ROW_LIMIT"));
+	}
 
 	while ((rc = poptGetNextOpt(opt_context)) > 0){
 		switch(rc){
