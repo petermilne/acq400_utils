@@ -92,6 +92,8 @@ struct poptOption opt_table[] = {
 static int find_best_ratio()
 {
 	int f_pll = def.demand;
+	int f_pll_hz = f_pll*1000;
+	unsigned long long fin_hz = f_in_khz*1000;
 	int rdw2;
 	int fdw2;
 	int op_range = OP_RANGE_SPEC;
@@ -118,26 +120,26 @@ search_value:
 	for (rdw2 = f_in_khz/op_range; XDW_VALID(rdw2-2); --rdw2){
 		fdw2 = f_pll * rdw2 / f_in_khz;
 	
-		dbg(3, "op_range %d rdw2 %d fdw2 %d pll_actual %d %s", 
+		dbg(4, "op_range %d rdw2 %d fdw2 %d pll_actual %d %s", 
 		    op_range, rdw2, fdw2, 
 		    f_in_khz * fdw2/rdw2,
 		    XDW_VALID(fdw2-2)? "OK": "NOT VALID");
 
 		if (XDW_VALID(fdw2-2)){
-			int pll_actual = f_in_khz * fdw2/rdw2;
+			int pll_actual_hz = fin_hz * fdw2/rdw2;
+			int _error = ABS(f_pll_hz - pll_actual_hz);
 
-			if (pll_actual <= f_pll){
-				int _error = f_pll - pll_actual;
-				if (!best.valid || _error < best.error){
+			dbg(3, "pll_actual_hz %d f_pll_hz %d _error %d", pll_actual_hz, f_pll_hz, _error);
 
-					dbg(2, "best: fdw2:%d rdw2:%d error:%d",
+			if (!best.valid || _error < best.error){
+
+				dbg(2, "best: fdw2:%d rdw2:%d error:%d",
 					    fdw2, rdw2, _error);
 
-					best.valid = 1;
-					best.error = _error;
-					best.rdw2 = rdw2;
-					best.fdw2 = fdw2;
-				}
+				best.valid = 1;
+				best.error = _error;
+				best.rdw2 = rdw2;
+				best.fdw2 = fdw2;
 			}
 		}else{
 			if (fdw2 -2 > RMAX){
@@ -160,6 +162,9 @@ search_value:
 	}
 
 	if (best.valid){
+		dbg(2, "best: fdw2:%d rdw2:%d error:%d",
+					    best.fdw2, best.rdw2, best.error);
+		
 		def.actual = f_in_khz * best.fdw2/best.rdw2;
 		def.FDW = best.fdw2 - 2;
 		def.RDW = best.rdw2 - 2;
