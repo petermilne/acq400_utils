@@ -96,9 +96,14 @@ static int find_best_ratio()
 	int fdw2;
 	int op_range = OP_RANGE_SPEC;
 
-	while(!XDW_VALID(f_in_khz/op_range -2)){
-	     op_range++;
-	}
+	do {
+		int valid = XDW_VALID(f_in_khz/op_range -2);
+		dbg(2, "f:%d op:%d XDW_VALID:%d", f_in_khz, op_range, valid);
+		if (valid){
+			break;
+		}
+		op_range++;
+	} while(1);
 
 	struct Best {
 		int rdw2;
@@ -113,8 +118,9 @@ search_value:
 	for (rdw2 = f_in_khz/op_range; XDW_VALID(rdw2-2); ++rdw2){
 		fdw2 = f_pll * rdw2 / f_in_khz;
 	
-		dbg(3, "op_range %d rdw2 %d fdw2 %d %s", 
+		dbg(3, "op_range %d rdw2 %d fdw2 %d pll_actual %d %s", 
 		    op_range, rdw2, fdw2, 
+		    f_in_khz * fdw2/rdw2,
 		    XDW_VALID(fdw2-2)? "OK": "NOT VALID");
 
 		if (XDW_VALID(fdw2-2)){
@@ -151,8 +157,6 @@ search_value:
 				}
 			}
 		}
-
-
 	}
 
 	if (best.valid){
