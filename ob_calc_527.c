@@ -115,7 +115,7 @@ static int find_best_ratio()
 	/* now choose largest RDW */
 
 search_value:
-	for (rdw2 = f_in_khz/op_range; XDW_VALID(rdw2-2); ++rdw2){
+	for (rdw2 = f_in_khz/op_range; XDW_VALID(rdw2-2); --rdw2){
 		fdw2 = f_pll * rdw2 / f_in_khz;
 	
 		dbg(3, "op_range %d rdw2 %d fdw2 %d pll_actual %d %s", 
