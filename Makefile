@@ -7,10 +7,11 @@ LIBFILE=$(LIBNAME).so.1.0.1
 LIBDIR=../lib
 
 CFLAGS+=-I./include
+CXXFLAGS+=-I./include
 
 #all: fs2xml proc-ints transpose demux bin2json checkramp lsa ob_calc_527
 
-PROGS=fs2xml  ob_calc_527 daemon xiloader dump-cstrings
+PROGS=fs2xml  ob_calc_527 daemon xiloader dump-cstrings xml_lookup
 
 all: $(PROGS)
 
@@ -49,6 +50,9 @@ lsa: lsa.o ptypair.o usc.o
 
 bin2json: bin2json.o
 	$(CXX) -o bin2json bin2json.o -L $(LIBDIR) -lpopt -lm
+
+xml_lookup: xml_lookup.o
+	$(CXX) -o xml_lookup xml_lookup.o -L $(LIBDIR) -ltinyxml -lpopt
 
 lib: acq-util.c
 	$(CC) -I../include -fPIC acq-util.c \
