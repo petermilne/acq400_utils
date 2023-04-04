@@ -2,7 +2,9 @@
 LIBNAME=libacq
 SONAME=$(LIBNAME).so.1
 LIBFILE=$(LIBNAME).so.1.0.1
-LIBDIR=/home/pgm/PROJECTS/buildroot/./output/build/popt-1.16/.libs
+# LIBDIR only used for local project
+
+LIBDIR=../lib
 
 CFLAGS+=-I./include
 
